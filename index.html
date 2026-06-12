@@ -474,6 +474,70 @@
     }
     .btn-map-action.gpx { color: #4fc3f7; border-color: rgba(79,195,247,0.4); }
 
+    /* ── Turn guidance card ── */
+    .turn-card {
+      width: 100%;
+      max-width: 420px;
+      display: none;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 16px;
+      animation: slideDown 0.25s ease;
+    }
+    .turn-card.visible { display: flex; }
+    .turn-card.imminent {
+      background: rgba(255,152,0,0.1);
+      border-color: var(--warn);
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .turn-arrow-box {
+      font-size: 38px;
+      line-height: 1;
+      flex-shrink: 0;
+      width: 48px;
+      text-align: center;
+    }
+
+    .turn-info { flex: 1; min-width: 0; }
+
+    .turn-direction {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+
+    .turn-dist {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .turn-card.imminent .turn-direction { color: var(--warn); }
+    .turn-card.imminent .turn-dist      { color: var(--warn); font-weight: 700; }
+
+    /* Map turn marker tooltip */
+    .leaflet-tooltip.turn-tip {
+      background: rgba(10,10,10,0.88);
+      border: 1px solid rgba(255,152,0,0.5);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+    .leaflet-tooltip.turn-tip::before { display: none; }
+
     /* GPX route banner on main screen */
     .gpx-banner {
       width: 100%;
@@ -564,6 +628,15 @@
     <div class="pace-delta" id="paceDelta"></div>
   </div>
 
+  <!-- Turn guidance card (appears when approaching a junction) -->
+  <div class="turn-card" id="turnCard">
+    <div class="turn-arrow-box" id="turnArrow">→</div>
+    <div class="turn-info">
+      <div class="turn-direction" id="turnDirection">Turn right</div>
+      <div class="turn-dist" id="turnDist">in 85m</div>
+    </div>
+  </div>
+
   <!-- GPX route indicator -->
   <div class="gpx-banner" id="gpxBanner">
     <span class="gpx-banner-text" id="gpxBannerText">No route loaded</span>
@@ -643,6 +716,17 @@
     let gpxLine = null;
     let gpxCoords = [];
     let gpxName = '';
+
+    // Turn-by-turn navigation
+    let turns = [];          // [{idx, lat, lng, delta, label, arrow}]
+    let turnMarkers = [];    // Leaflet markers on map
+    let routeProgress = 0;   // index of nearest GPX point to current position
+
+    const TURN_THRESHOLD = 30;   // degrees — min bearing change = a turn
+    const TURN_SEGMENT   = 8;    // sample every Nth GPX point for bearing
+    const TURN_WARN_M    = 120;  // metres — start showing turn card
+    const TURN_NOW_M     = 25;   // metres — "Turn now!"
+    const TURN_MERGE_M   = 30;   // metres — merge duplicate nearby detections
 
     // Preset routes bundled with the app
     const PRESET_ROUTES = [
@@ -775,7 +859,11 @@
     function clearGpx() {
       gpxCoords = [];
       gpxName = '';
+      turns = [];
+      routeProgress = 0;
       if (gpxLine) gpxLine.setLatLngs([]);
+      clearTurnMarkers();
+      hideTurnCard();
       document.getElementById('gpxBanner').classList.remove('visible');
       document.getElementById('gpxBadge').classList.remove('visible');
       renderPresetChips();
@@ -809,6 +897,10 @@
         gpxLine.setLatLngs(gpxCoords);
         map.fitBounds(gpxLine.getBounds(), { padding: [40, 40] });
       }
+
+      turns = detectTurns(gpxCoords);
+      routeProgress = 0;
+      drawTurnMarkers();
       renderPresetChips();
       openMap();
     }
@@ -827,6 +919,143 @@
 
     // Render preset chips on init
     renderPresetChips();
+
+    // ── Turn detection ────────────────────────────────────────────────────────
+    function computeBearing(lat1, lon1, lat2, lon2) {
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+      const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180)
+              - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function angleDiff(b1, b2) {
+      let d = b2 - b1;
+      while (d >  180) d -= 360;
+      while (d < -180) d += 360;
+      return d;
+    }
+
+    function turnLabel(delta) {
+      const a = Math.abs(delta);
+      const side = delta > 0 ? 'right' : 'left';
+      if (a >= 150) return 'U-turn';
+      if (a >= 100) return `Sharp ${side}`;
+      if (a >=  30) return `Turn ${side}`;
+      return 'Continue straight';
+    }
+
+    function turnArrowChar(delta) {
+      const a = Math.abs(delta);
+      if (a >= 150) return '↩';
+      if (delta >=  100) return '↪';
+      if (delta >=   30) return '→';
+      if (delta <= -100) return '↩';
+      if (delta <=  -30) return '←';
+      return '↑';
+    }
+
+    function detectTurns(coords) {
+      if (coords.length < TURN_SEGMENT * 2 + 1) return [];
+      const result = [];
+      for (let i = TURN_SEGMENT; i < coords.length - TURN_SEGMENT; i += Math.max(1, Math.floor(TURN_SEGMENT / 2))) {
+        const b1 = computeBearing(
+          coords[i - TURN_SEGMENT][0], coords[i - TURN_SEGMENT][1],
+          coords[i][0],                coords[i][1]
+        );
+        const b2 = computeBearing(
+          coords[i][0],                coords[i][1],
+          coords[i + TURN_SEGMENT][0], coords[i + TURN_SEGMENT][1]
+        );
+        const delta = angleDiff(b1, b2);
+        if (Math.abs(delta) < TURN_THRESHOLD) continue;
+
+        // Merge with last turn if they're very close on the ground
+        if (result.length > 0) {
+          const prev = result[result.length - 1];
+          const d = haversine(prev.lat, prev.lng, coords[i][0], coords[i][1]);
+          if (d < TURN_MERGE_M) {
+            // Keep the one with the larger absolute angle
+            if (Math.abs(delta) > Math.abs(prev.delta)) {
+              result[result.length - 1] = { idx: i, lat: coords[i][0], lng: coords[i][1], delta, label: turnLabel(delta), arrow: turnArrowChar(delta) };
+            }
+            continue;
+          }
+        }
+
+        result.push({ idx: i, lat: coords[i][0], lng: coords[i][1], delta, label: turnLabel(delta), arrow: turnArrowChar(delta) });
+      }
+      return result;
+    }
+
+    // ── Turn markers on map ───────────────────────────────────────────────────
+    function drawTurnMarkers() {
+      clearTurnMarkers();
+      if (!map) return;
+      turns.forEach((t, i) => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width:20px;height:20px;
+            background:#ff9800;
+            border:2px solid #fff;
+            border-radius:50%;
+            display:flex;align-items:center;justify-content:center;
+            font-size:11px;line-height:1;
+            box-shadow:0 1px 4px rgba(0,0,0,0.5);
+          ">${i + 1}</div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        });
+        const marker = L.marker([t.lat, t.lng], { icon })
+          .bindTooltip(`${t.arrow} ${t.label}`, { className: 'turn-tip', permanent: false, direction: 'top', offset: [0, -12] })
+          .addTo(map);
+        turnMarkers.push(marker);
+      });
+    }
+
+    function clearTurnMarkers() {
+      turnMarkers.forEach(m => m.remove());
+      turnMarkers = [];
+    }
+
+    // ── Turn guidance (called on each GPS fix) ────────────────────────────────
+    function updateTurnGuide(lat, lng) {
+      if (!running || !gpxCoords.length || !turns.length) { hideTurnCard(); return; }
+
+      // Advance route progress: search a window forward (+40) with small backward slack (-5)
+      const searchStart = Math.max(0, routeProgress - 5);
+      const searchEnd   = Math.min(gpxCoords.length - 1, routeProgress + 40);
+      let best = routeProgress, bestDist = Infinity;
+      for (let i = searchStart; i <= searchEnd; i++) {
+        const d = haversine(lat, lng, gpxCoords[i][0], gpxCoords[i][1]);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      routeProgress = best;
+
+      // Next turn that's still ahead of us
+      const next = turns.find(t => t.idx > routeProgress);
+      if (!next) { hideTurnCard(); return; }
+
+      const dist = haversine(lat, lng, next.lat, next.lng);
+      if (dist > TURN_WARN_M) { hideTurnCard(); return; }
+
+      const imminent = dist <= TURN_NOW_M;
+      const distText = imminent ? 'Turn now!' : `in ${Math.round(dist)} m`;
+      showTurnCard(next.arrow, next.label, distText, imminent);
+    }
+
+    function showTurnCard(arrow, label, distText, imminent) {
+      const card = document.getElementById('turnCard');
+      document.getElementById('turnArrow').textContent     = arrow;
+      document.getElementById('turnDirection').textContent = label;
+      document.getElementById('turnDist').textContent      = distText;
+      card.className = 'turn-card visible' + (imminent ? ' imminent' : '');
+    }
+
+    function hideTurnCard() {
+      document.getElementById('turnCard').className = 'turn-card';
+    }
 
     // ── Target pace controls ──────────────────────────────────────────────────
     function adjustTarget(part, delta) {
@@ -856,6 +1085,7 @@
       smoothSpeed = 0;
       motionSamples = [];
       routeCoords = [];
+      routeProgress = 0;
       if (routeLine) routeLine.setLatLngs([]);
       btnStart.textContent = 'STOP';
       btnStart.classList.add('running');
@@ -885,6 +1115,7 @@
       paceDelta.className = 'pace-delta';
       mapPaceVal.textContent = '--:--';
       mapPaceVal.className = 'map-pace-val idle';
+      hideTurnCard();
       statSpeed.textContent = '0.0';
       statDistance.textContent = '0.00';
       statTime.textContent = '0:00';
@@ -927,6 +1158,7 @@
       }
       renderPace(smoothSpeed);
       renderStats();
+      updateTurnGuide(latitude, longitude);
     }
 
     function onGeoError(err) {
