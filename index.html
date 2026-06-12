@@ -383,7 +383,7 @@
       running = true;
       startTime = Date.now();
       totalDistance = 0;
-      lastPos = null;
+      lastPos = null;  // { lat, lng, timestamp }
       smoothSpeed = 0;
 
       btnStart.textContent = 'STOP';
@@ -421,22 +421,29 @@
     // ── Position handler ──────────────────────────────────────────────────────
     function onPosition(pos) {
       const { latitude, longitude, speed, accuracy } = pos.coords;
+      const now = pos.timestamp;
 
       setGps('locked', 'GPS');
       accuracyBar.textContent = accuracy ? `±${Math.round(accuracy)} m accuracy` : '';
 
       if (!running) return;
 
-      // Distance from last fix
+      let rawSpeed = null;
+
       if (lastPos) {
         const d = haversine(lastPos.lat, lastPos.lng, latitude, longitude);
         totalDistance += d;
-      }
-      lastPos = { lat: latitude, lng: longitude };
 
-      // Speed: prefer device-reported (m/s), fall back to distance/time
-      let rawSpeed = (speed != null && speed >= 0) ? speed : null;
-      if (rawSpeed == null && lastPos) rawSpeed = 0;
+        // Prefer device-reported speed; fall back to distance / elapsed time
+        if (speed != null && speed >= 0) {
+          rawSpeed = speed;
+        } else {
+          const dt = (now - lastPos.timestamp) / 1000; // seconds
+          rawSpeed = dt > 0 ? d / dt : null;
+        }
+      }
+
+      lastPos = { lat: latitude, lng: longitude, timestamp: now };
 
       if (rawSpeed !== null) {
         smoothSpeed = smoothSpeed === 0
@@ -458,7 +465,7 @@
       const distPerUnit = unit === 'km' ? 1000 : 1609.34;
       paceUnit.textContent = `min / ${unit}`;
 
-      if (speedMs < 0.3) {
+      if (speedMs < 0.2) {
         paceValue.textContent = '--:--';
         paceValue.classList.remove('fast');
         paceValue.classList.add('idle');
