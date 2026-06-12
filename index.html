@@ -661,6 +661,7 @@
     const TURN_WARN_M    = 120;  // metres — start showing turn card
     const TURN_NOW_M     = 25;   // metres — "Turn now!"
     const TURN_MERGE_M   = 30;   // metres — merge duplicate nearby detections
+    const OFF_ROUTE_M    = 40;   // metres — beyond this from route = off-route, ignore
 
     // Preset routes bundled with the app
     const PRESET_ROUTES = [
@@ -965,6 +966,12 @@
         const d = haversine(lat, lng, gpxCoords[i][0], gpxCoords[i][1]);
         if (d < bestDist) { bestDist = d; best = i; }
       }
+
+      // Off-route: if we've strayed beyond the threshold, silently ignore the
+      // route — no turn guidance — and don't advance progress. Resumes
+      // automatically once back within range.
+      if (bestDist > OFF_ROUTE_M) { hideTurnCard(); return; }
+
       routeProgress = best;
 
       // Next turn that's still ahead of us
