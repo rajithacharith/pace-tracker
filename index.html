@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <title>Pace Tracker</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --border: #222;
+      --accent: #00e676;
+      --accent-dim: #00c85a;
+      --text-primary: #ffffff;
+      --text-secondary: #888;
+      --text-dim: #555;
+      --warn: #ff9800;
+      --error: #f44336;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 20px;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .app-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .gps-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .gps-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: background 0.3s;
+    }
+
+    .gps-dot.acquiring { background: var(--warn); animation: pulse 1.2s infinite; }
+    .gps-dot.locked { background: var(--accent); }
+    .gps-dot.error { background: var(--error); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Main pace display */
+    .main-display {
+      text-align: center;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .pace-label {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .pace-value {
+      font-size: clamp(72px, 22vw, 120px);
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -2px;
+      color: var(--text-primary);
+      transition: color 0.3s;
+    }
+
+    .pace-value.fast { color: var(--accent); }
+    .pace-value.idle { color: var(--text-dim); }
+
+    .pace-unit {
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      letter-spacing: 0.05em;
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 10px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    /* Unit toggle */
+    .unit-toggle {
+      display: flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .unit-btn {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.05em;
+    }
+
+    .unit-btn.active {
+      background: var(--accent);
+      color: #000;
+    }
+
+    /* Bottom controls */
+    .controls {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .btn-start {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 3px solid var(--accent);
+      background: transparent;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+
+    .btn-start:active { transform: scale(0.94); }
+
+    .btn-start.running {
+      border-color: var(--error);
+      color: var(--error);
+    }
+
+    .accuracy-bar {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    /* Permission / error overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 40px;
+      text-align: center;
+      z-index: 10;
+    }
+
+    .overlay.hidden { display: none; }
+
+    .overlay-icon {
+      font-size: 56px;
+    }
+
+    .overlay-title {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .overlay-body {
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      max-width: 300px;
+    }
+
+    .btn-primary {
+      padding: 14px 36px;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 50px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+    }
+
+    .btn-primary:active { transform: scale(0.96); }
+  </style>
+</head>
+<body>
+
+  <!-- Permission overlay -->
+  <div class="overlay" id="overlay">
+    <div class="overlay-icon">📍</div>
+    <div class="overlay-title">Location Access Needed</div>
+    <div class="overlay-body">
+      Pace Tracker uses GPS to calculate your running pace in real time.
+    </div>
+    <button class="btn-primary" id="btnAllow">Enable GPS</button>
+    <div class="overlay-body" id="overlayError" style="color: var(--error); display:none;"></div>
+  </div>
+
+  <header>
+    <span class="app-title">Pace Tracker</span>
+    <div class="gps-status">
+      <div class="gps-dot" id="gpsDot"></div>
+      <span id="gpsLabel">—</span>
+    </div>
+  </header>
+
+  <div class="main-display">
+    <div class="pace-label">Current Pace</div>
+    <div class="pace-value idle" id="paceValue">--:--</div>
+    <div class="pace-unit" id="paceUnit">min / km</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value" id="statSpeed">0.0</div>
+      <div class="stat-label">km/h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statDistance">0.00</div>
+      <div class="stat-label">km</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTime">0:00</div>
+      <div class="stat-label">time</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="unit-toggle">
+      <button class="unit-btn active" id="btnKm" onclick="setUnit('km')">KM</button>
+      <button class="unit-btn" id="btnMi" onclick="setUnit('mi')">MI</button>
+    </div>
+    <button class="btn-start" id="btnStart" onclick="toggleTracking()">START</button>
+    <div class="accuracy-bar" id="accuracyBar"></div>
+  </div>
+
+  <script>
+    // ── State ────────────────────────────────────────────────────────────────
+    let watchId = null;
+    let wakeLock = null;
+    let running = false;
+    let unit = 'km';                 // 'km' | 'mi'
+    let startTime = null;
+    let timerInterval = null;
+    let totalDistance = 0;           // metres
+    let lastPos = null;
+
+    const SMOOTHING = 0.25;          // EMA factor (lower = smoother)
+    let smoothSpeed = 0;             // m/s, EMA smoothed
+
+    // ── DOM refs ─────────────────────────────────────────────────────────────
+    const overlay      = document.getElementById('overlay');
+    const overlayError = document.getElementById('overlayError');
+    const btnAllow     = document.getElementById('btnAllow');
+    const gpsDot       = document.getElementById('gpsDot');
+    const gpsLabel     = document.getElementById('gpsLabel');
+    const paceValue    = document.getElementById('paceValue');
+    const paceUnit     = document.getElementById('paceUnit');
+    const statSpeed    = document.getElementById('statSpeed');
+    const statDistance = document.getElementById('statDistance');
+    const statTime     = document.getElementById('statTime');
+    const btnStart     = document.getElementById('btnStart');
+    const accuracyBar  = document.getElementById('accuracyBar');
+
+    // ── GPS permission / init ─────────────────────────────────────────────────
+    if (!('geolocation' in navigator)) {
+      overlayError.textContent = 'Geolocation is not supported by this browser.';
+      overlayError.style.display = 'block';
+      btnAllow.style.display = 'none';
+    }
+
+    btnAllow.addEventListener('click', requestLocation);
+
+    // Auto-request on load (may prompt immediately)
+    requestLocation();
+
+    function requestLocation() {
+      overlayError.style.display = 'none';
+      setGps('acquiring', 'Acquiring…');
+
+      navigator.geolocation.getCurrentPosition(
+        () => {
+          overlay.classList.add('hidden');
+          setGps('locked', 'GPS Ready');
+        },
+        (err) => {
+          setGps('error', 'Error');
+          overlayError.textContent = geoErrorMsg(err);
+          overlayError.style.display = 'block';
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
+    // ── Tracking ─────────────────────────────────────────────────────────────
+    function toggleTracking() {
+      if (running) stopTracking(); else startTracking();
+    }
+
+    function startTracking() {
+      running = true;
+      startTime = Date.now();
+      totalDistance = 0;
+      lastPos = null;
+      smoothSpeed = 0;
+
+      btnStart.textContent = 'STOP';
+      btnStart.classList.add('running');
+
+      // Screen Wake Lock
+      if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
+      }
+
+      timerInterval = setInterval(updateTimer, 1000);
+
+      watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 1000,
+      });
+    }
+
+    function stopTracking() {
+      running = false;
+      btnStart.textContent = 'START';
+      btnStart.classList.remove('running');
+
+      if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      if (wakeLock) { wakeLock.release(); wakeLock = null; }
+
+      setGps('locked', 'GPS Ready');
+      paceValue.textContent = '--:--';
+      paceValue.classList.remove('fast');
+      paceValue.classList.add('idle');
+    }
+
+    // ── Position handler ──────────────────────────────────────────────────────
+    function onPosition(pos) {
+      const { latitude, longitude, speed, accuracy } = pos.coords;
+
+      setGps('locked', 'GPS');
+      accuracyBar.textContent = accuracy ? `±${Math.round(accuracy)} m accuracy` : '';
+
+      if (!running) return;
+
+      // Distance from last fix
+      if (lastPos) {
+        const d = haversine(lastPos.lat, lastPos.lng, latitude, longitude);
+        totalDistance += d;
+      }
+      lastPos = { lat: latitude, lng: longitude };
+
+      // Speed: prefer device-reported (m/s), fall back to distance/time
+      let rawSpeed = (speed != null && speed >= 0) ? speed : null;
+      if (rawSpeed == null && lastPos) rawSpeed = 0;
+
+      if (rawSpeed !== null) {
+        smoothSpeed = smoothSpeed === 0
+          ? rawSpeed
+          : smoothSpeed + SMOOTHING * (rawSpeed - smoothSpeed);
+      }
+
+      renderPace(smoothSpeed);
+      renderStats();
+    }
+
+    function onGeoError(err) {
+      setGps('error', 'Error');
+      accuracyBar.textContent = geoErrorMsg(err);
+    }
+
+    // ── Rendering ─────────────────────────────────────────────────────────────
+    function renderPace(speedMs) {
+      const distPerUnit = unit === 'km' ? 1000 : 1609.34;
+      paceUnit.textContent = `min / ${unit}`;
+
+      if (speedMs < 0.3) {
+        paceValue.textContent = '--:--';
+        paceValue.classList.remove('fast');
+        paceValue.classList.add('idle');
+        statSpeed.textContent = '0.0';
+        return;
+      }
+
+      const secPerUnit = distPerUnit / speedMs;
+      const mins = Math.floor(secPerUnit / 60);
+      const secs = Math.floor(secPerUnit % 60);
+      paceValue.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+      paceValue.classList.remove('idle');
+
+      // Highlight green if faster than 6:00/unit
+      if (secPerUnit < 360) paceValue.classList.add('fast');
+      else paceValue.classList.remove('fast');
+
+      const kmh = (speedMs * 3.6).toFixed(1);
+      statSpeed.textContent = unit === 'km' ? kmh : (speedMs * 2.237).toFixed(1);
+    }
+
+    function renderStats() {
+      const dist = unit === 'km' ? totalDistance / 1000 : totalDistance / 1609.34;
+      statDistance.textContent = dist.toFixed(2);
+    }
+
+    function updateTimer() {
+      if (!startTime) return;
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const h = Math.floor(elapsed / 3600);
+      const m = Math.floor((elapsed % 3600) / 60);
+      const s = elapsed % 60;
+      statTime.textContent = h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    // ── Unit toggle ───────────────────────────────────────────────────────────
+    function setUnit(u) {
+      unit = u;
+      document.getElementById('btnKm').classList.toggle('active', u === 'km');
+      document.getElementById('btnMi').classList.toggle('active', u === 'mi');
+      statSpeed.closest('.stat-card').querySelector('.stat-label').textContent = u === 'km' ? 'km/h' : 'mph';
+      statDistance.closest('.stat-card').querySelector('.stat-label').textContent = u;
+      renderPace(smoothSpeed);
+      renderStats();
+    }
+
+    // ── Haversine distance (metres) ───────────────────────────────────────────
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function setGps(state, label) {
+      gpsDot.className = 'gps-dot ' + state;
+      gpsLabel.textContent = label;
+    }
+
+    function geoErrorMsg(err) {
+      switch (err.code) {
+        case 1: return 'Location access denied. Please allow in browser settings.';
+        case 2: return 'Position unavailable. Check GPS signal.';
+        case 3: return 'GPS timeout. Try moving to an open area.';
+        default: return 'Unknown GPS error.';
+      }
+    }
+  </script>
+</body>
+</html>
