@@ -8,23 +8,20 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <title>Pace Tracker</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
       --bg: #0a0a0a;
       --surface: #141414;
       --border: #222;
-      --accent: #00e676;
-      --accent-dim: #00c85a;
       --text-primary: #ffffff;
       --text-secondary: #888;
       --text-dim: #555;
       --warn: #ff9800;
       --error: #f44336;
+      --green: #00e676;
+      --yellow: #ffd600;
+      --red: #f44336;
     }
 
     body {
@@ -36,7 +33,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
-      padding: 24px 20px;
+      padding: 20px 20px 24px;
       overflow: hidden;
       touch-action: none;
     }
@@ -71,17 +68,16 @@
       background: var(--text-dim);
       transition: background 0.3s;
     }
-
     .gps-dot.acquiring { background: var(--warn); animation: pulse 1.2s infinite; }
-    .gps-dot.locked { background: var(--accent); }
-    .gps-dot.error { background: var(--error); }
+    .gps-dot.locked    { background: var(--green); }
+    .gps-dot.error     { background: var(--red); }
 
     @keyframes pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
+      50%       { opacity: 0.3; }
     }
 
-    /* Main pace display */
+    /* ── Main pace display ── */
     .main-display {
       text-align: center;
       flex: 1;
@@ -89,11 +85,11 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     .pace-label {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       letter-spacing: 0.2em;
       text-transform: uppercase;
@@ -101,30 +97,127 @@
     }
 
     .pace-value {
-      font-size: clamp(72px, 22vw, 120px);
+      font-size: clamp(72px, 22vw, 116px);
       font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       letter-spacing: -2px;
       color: var(--text-primary);
-      transition: color 0.3s;
+      transition: color 0.4s;
     }
-
-    .pace-value.fast { color: var(--accent); }
-    .pace-value.idle { color: var(--text-dim); }
+    .pace-value.idle   { color: var(--text-dim); }
+    .pace-value.ahead  { color: var(--green); }
+    .pace-value.near   { color: var(--yellow); }
+    .pace-value.behind { color: var(--red); }
 
     .pace-unit {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 400;
       color: var(--text-secondary);
-      letter-spacing: 0.05em;
     }
 
-    /* Stats row */
+    /* Delta badge: shows +0:12 behind / -0:08 ahead */
+    .pace-delta {
+      font-size: 15px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+      padding: 4px 14px;
+      border-radius: 20px;
+      background: transparent;
+      color: transparent;
+      transition: color 0.4s, background 0.4s;
+      min-width: 80px;
+      text-align: center;
+    }
+    .pace-delta.ahead  { background: rgba(0,230,118,0.12); color: var(--green); }
+    .pace-delta.near   { background: rgba(255,214,0,0.12);  color: var(--yellow); }
+    .pace-delta.behind { background: rgba(244,67,54,0.12);  color: var(--red); }
+
+    /* ── Target pace setter ── */
+    .target-section {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .target-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .target-setter {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .target-group {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .target-sep {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      padding: 0 2px;
+      line-height: 1;
+      align-self: center;
+    }
+
+    .adj-btn {
+      width: 44px;
+      height: 56px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .adj-btn:active { color: var(--text-primary); }
+
+    .target-display {
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      min-width: 36px;
+      text-align: center;
+      line-height: 1;
+    }
+
+    .target-unit {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding-right: 12px;
+    }
+
+    /* ── Stats row ── */
     .stats-row {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
-      gap: 12px;
+      gap: 10px;
       width: 100%;
       max-width: 420px;
     }
@@ -132,13 +225,13 @@
     .stat-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px 10px;
+      border-radius: 14px;
+      padding: 12px 8px;
       text-align: center;
     }
 
     .stat-value {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       color: var(--text-primary);
@@ -151,10 +244,18 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--text-dim);
-      margin-top: 4px;
+      margin-top: 3px;
     }
 
-    /* Unit toggle */
+    /* ── Bottom controls ── */
+    .controls {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
     .unit-toggle {
       display: flex;
       background: var(--surface);
@@ -174,50 +275,34 @@
       transition: all 0.2s;
       letter-spacing: 0.05em;
     }
-
-    .unit-btn.active {
-      background: var(--accent);
-      color: #000;
-    }
-
-    /* Bottom controls */
-    .controls {
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-    }
+    .unit-btn.active { background: var(--green); color: #000; }
 
     .btn-start {
-      width: 80px;
-      height: 80px;
+      width: 76px;
+      height: 76px;
       border-radius: 50%;
-      border: 3px solid var(--accent);
+      border: 3px solid var(--green);
       background: transparent;
-      color: var(--accent);
+      color: var(--green);
       font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.1em;
       cursor: pointer;
       transition: all 0.2s;
       text-transform: uppercase;
+      -webkit-tap-highlight-color: transparent;
     }
-
-    .btn-start:active { transform: scale(0.94); }
-
-    .btn-start.running {
-      border-color: var(--error);
-      color: var(--error);
-    }
+    .btn-start:active { transform: scale(0.93); }
+    .btn-start.running { border-color: var(--red); color: var(--red); }
 
     .accuracy-bar {
       font-size: 11px;
       color: var(--text-dim);
       letter-spacing: 0.05em;
+      min-height: 16px;
     }
 
-    /* Permission / error overlay */
+    /* ── Permission overlay ── */
     .overlay {
       position: fixed;
       inset: 0;
@@ -231,51 +316,32 @@
       text-align: center;
       z-index: 10;
     }
-
     .overlay.hidden { display: none; }
-
-    .overlay-icon {
-      font-size: 56px;
-    }
-
-    .overlay-title {
-      font-size: 22px;
-      font-weight: 700;
-    }
-
-    .overlay-body {
-      font-size: 15px;
-      color: var(--text-secondary);
-      line-height: 1.6;
-      max-width: 300px;
-    }
+    .overlay-icon  { font-size: 56px; }
+    .overlay-title { font-size: 22px; font-weight: 700; }
+    .overlay-body  { font-size: 15px; color: var(--text-secondary); line-height: 1.6; max-width: 300px; }
 
     .btn-primary {
       padding: 14px 36px;
-      background: var(--accent);
+      background: var(--green);
       color: #000;
       border: none;
       border-radius: 50px;
       font-size: 15px;
       font-weight: 700;
       cursor: pointer;
-      letter-spacing: 0.05em;
     }
-
     .btn-primary:active { transform: scale(0.96); }
   </style>
 </head>
 <body>
 
-  <!-- Permission overlay -->
   <div class="overlay" id="overlay">
     <div class="overlay-icon">📍</div>
     <div class="overlay-title">Location Access Needed</div>
-    <div class="overlay-body">
-      Pace Tracker uses GPS to calculate your running pace in real time.
-    </div>
+    <div class="overlay-body">Pace Tracker uses GPS to calculate your running pace in real time.</div>
     <button class="btn-primary" id="btnAllow">Enable GPS</button>
-    <div class="overlay-body" id="overlayError" style="color: var(--error); display:none;"></div>
+    <div class="overlay-body" id="overlayError" style="color:var(--red);display:none;"></div>
   </div>
 
   <header>
@@ -286,20 +352,44 @@
     </div>
   </header>
 
+  <!-- Current pace -->
   <div class="main-display">
     <div class="pace-label">Current Pace</div>
     <div class="pace-value idle" id="paceValue">--:--</div>
     <div class="pace-unit" id="paceUnit">min / km</div>
+    <div class="pace-delta" id="paceDelta"></div>
   </div>
 
+  <!-- Target pace setter -->
+  <div class="target-section">
+    <div class="target-label">Target Pace</div>
+    <div class="target-setter">
+      <!-- Minutes -->
+      <div class="target-group">
+        <button class="adj-btn" onclick="adjustTarget('min', 1)">＋</button>
+        <div class="target-display" id="targetMin">6</div>
+        <button class="adj-btn" onclick="adjustTarget('min', -1)">－</button>
+      </div>
+      <div class="target-sep">:</div>
+      <!-- Seconds -->
+      <div class="target-group">
+        <button class="adj-btn" onclick="adjustTarget('sec', 5)">＋</button>
+        <div class="target-display" id="targetSec">00</div>
+        <button class="adj-btn" onclick="adjustTarget('sec', -5)">－</button>
+      </div>
+      <div class="target-unit" id="targetUnit">/ km</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
   <div class="stats-row">
     <div class="stat-card">
       <div class="stat-value" id="statSpeed">0.0</div>
-      <div class="stat-label">km/h</div>
+      <div class="stat-label" id="statSpeedLabel">km/h</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statDistance">0.00</div>
-      <div class="stat-label">km</div>
+      <div class="stat-label" id="statDistLabel">km</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statTime">0:00</div>
@@ -307,6 +397,7 @@
     </div>
   </div>
 
+  <!-- Controls -->
   <div class="controls">
     <div class="unit-toggle">
       <button class="unit-btn active" id="btnKm" onclick="setUnit('km')">KM</button>
@@ -318,60 +409,69 @@
 
   <script>
     // ── State ────────────────────────────────────────────────────────────────
-    let watchId = null;
-    let wakeLock = null;
+    let watchId = null, wakeLock = null;
     let running = false;
-    let unit = 'km';                 // 'km' | 'mi'
-    let startTime = null;
-    let timerInterval = null;
-    let totalDistance = 0;           // metres
+    let unit = 'km';
+    let startTime = null, timerInterval = null;
+    let totalDistance = 0;
     let lastPos = null;
+    const SMOOTHING = 0.25;
+    let smoothSpeed = 0;
 
-    const SMOOTHING = 0.25;          // EMA factor (lower = smoother)
-    let smoothSpeed = 0;             // m/s, EMA smoothed
+    // Target pace in total seconds per unit (default 6:00)
+    let targetMin = 6, targetSec = 0;
 
-    // ── DOM refs ─────────────────────────────────────────────────────────────
+    // ── DOM ───────────────────────────────────────────────────────────────────
     const overlay      = document.getElementById('overlay');
     const overlayError = document.getElementById('overlayError');
-    const btnAllow     = document.getElementById('btnAllow');
     const gpsDot       = document.getElementById('gpsDot');
     const gpsLabel     = document.getElementById('gpsLabel');
     const paceValue    = document.getElementById('paceValue');
     const paceUnit     = document.getElementById('paceUnit');
+    const paceDelta    = document.getElementById('paceDelta');
     const statSpeed    = document.getElementById('statSpeed');
     const statDistance = document.getElementById('statDistance');
     const statTime     = document.getElementById('statTime');
     const btnStart     = document.getElementById('btnStart');
     const accuracyBar  = document.getElementById('accuracyBar');
+    const targetMinEl  = document.getElementById('targetMin');
+    const targetSecEl  = document.getElementById('targetSec');
 
-    // ── GPS permission / init ─────────────────────────────────────────────────
+    // ── GPS init ──────────────────────────────────────────────────────────────
     if (!('geolocation' in navigator)) {
-      overlayError.textContent = 'Geolocation is not supported by this browser.';
+      overlayError.textContent = 'Geolocation not supported by this browser.';
       overlayError.style.display = 'block';
-      btnAllow.style.display = 'none';
+      document.getElementById('btnAllow').style.display = 'none';
     }
-
-    btnAllow.addEventListener('click', requestLocation);
-
-    // Auto-request on load (may prompt immediately)
+    document.getElementById('btnAllow').addEventListener('click', requestLocation);
     requestLocation();
 
     function requestLocation() {
       overlayError.style.display = 'none';
       setGps('acquiring', 'Acquiring…');
-
       navigator.geolocation.getCurrentPosition(
-        () => {
-          overlay.classList.add('hidden');
-          setGps('locked', 'GPS Ready');
-        },
-        (err) => {
-          setGps('error', 'Error');
-          overlayError.textContent = geoErrorMsg(err);
-          overlayError.style.display = 'block';
-        },
+        () => { overlay.classList.add('hidden'); setGps('locked', 'GPS Ready'); },
+        (err) => { setGps('error', 'Error'); overlayError.textContent = geoErrorMsg(err); overlayError.style.display = 'block'; },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
+    }
+
+    // ── Target pace controls ──────────────────────────────────────────────────
+    function adjustTarget(part, delta) {
+      if (part === 'min') {
+        targetMin = Math.max(1, Math.min(30, targetMin + delta));
+      } else {
+        targetSec = (targetSec + delta + 60) % 60;
+        // round to nearest 5
+        targetSec = Math.round(targetSec / 5) * 5 % 60;
+      }
+      targetMinEl.textContent = targetMin;
+      targetSecEl.textContent = String(targetSec).padStart(2, '0');
+      renderPace(smoothSpeed);
+    }
+
+    function targetSeconds() {
+      return targetMin * 60 + targetSec;
     }
 
     // ── Tracking ─────────────────────────────────────────────────────────────
@@ -383,23 +483,14 @@
       running = true;
       startTime = Date.now();
       totalDistance = 0;
-      lastPos = null;  // { lat, lng, timestamp }
+      lastPos = null;
       smoothSpeed = 0;
-
       btnStart.textContent = 'STOP';
       btnStart.classList.add('running');
-
-      // Screen Wake Lock
-      if ('wakeLock' in navigator) {
-        navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
-      }
-
+      if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
       timerInterval = setInterval(updateTimer, 1000);
-
       watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 1000,
+        enableHighAccuracy: true, timeout: 5000, maximumAge: 1000,
       });
     }
 
@@ -407,50 +498,39 @@
       running = false;
       btnStart.textContent = 'START';
       btnStart.classList.remove('running');
-
       if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       if (wakeLock) { wakeLock.release(); wakeLock = null; }
-
       setGps('locked', 'GPS Ready');
       paceValue.textContent = '--:--';
-      paceValue.classList.remove('fast');
-      paceValue.classList.add('idle');
+      paceValue.className = 'pace-value idle';
+      paceDelta.textContent = '';
+      paceDelta.className = 'pace-delta';
     }
 
     // ── Position handler ──────────────────────────────────────────────────────
     function onPosition(pos) {
       const { latitude, longitude, speed, accuracy } = pos.coords;
       const now = pos.timestamp;
-
       setGps('locked', 'GPS');
       accuracyBar.textContent = accuracy ? `±${Math.round(accuracy)} m accuracy` : '';
-
       if (!running) return;
 
       let rawSpeed = null;
-
       if (lastPos) {
         const d = haversine(lastPos.lat, lastPos.lng, latitude, longitude);
         totalDistance += d;
-
-        // Prefer device-reported speed; fall back to distance / elapsed time
         if (speed != null && speed >= 0) {
           rawSpeed = speed;
         } else {
-          const dt = (now - lastPos.timestamp) / 1000; // seconds
+          const dt = (now - lastPos.timestamp) / 1000;
           rawSpeed = dt > 0 ? d / dt : null;
         }
       }
-
       lastPos = { lat: latitude, lng: longitude, timestamp: now };
-
       if (rawSpeed !== null) {
-        smoothSpeed = smoothSpeed === 0
-          ? rawSpeed
-          : smoothSpeed + SMOOTHING * (rawSpeed - smoothSpeed);
+        smoothSpeed = smoothSpeed === 0 ? rawSpeed : smoothSpeed + SMOOTHING * (rawSpeed - smoothSpeed);
       }
-
       renderPace(smoothSpeed);
       renderStats();
     }
@@ -467,9 +547,10 @@
 
       if (speedMs < 0.2) {
         paceValue.textContent = '--:--';
-        paceValue.classList.remove('fast');
-        paceValue.classList.add('idle');
+        paceValue.className = 'pace-value idle';
         statSpeed.textContent = '0.0';
+        paceDelta.textContent = '';
+        paceDelta.className = 'pace-delta';
         return;
       }
 
@@ -477,14 +558,39 @@
       const mins = Math.floor(secPerUnit / 60);
       const secs = Math.floor(secPerUnit % 60);
       paceValue.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
-      paceValue.classList.remove('idle');
 
-      // Highlight green if faster than 6:00/unit
-      if (secPerUnit < 360) paceValue.classList.add('fast');
-      else paceValue.classList.remove('fast');
+      const target = targetSeconds();
+      const diff = secPerUnit - target; // positive = slower (behind), negative = faster (ahead)
 
-      const kmh = (speedMs * 3.6).toFixed(1);
-      statSpeed.textContent = unit === 'km' ? kmh : (speedMs * 2.237).toFixed(1);
+      let zone;
+      if (diff < -30)      zone = 'ahead';   // >30s faster than target
+      else if (diff <= 30) zone = 'near';    // within ±30s
+      else                 zone = 'behind';  // >30s slower
+
+      paceValue.className = `pace-value ${zone}`;
+
+      // Delta badge
+      const absDiff = Math.abs(Math.round(diff));
+      const dMin = Math.floor(absDiff / 60);
+      const dSec = absDiff % 60;
+      const diffStr = dMin > 0
+        ? `${dMin}:${String(dSec).padStart(2,'0')}`
+        : `0:${String(dSec).padStart(2,'0')}`;
+
+      if (diff < -5) {
+        paceDelta.textContent = `${diffStr} ahead`;
+        paceDelta.className = 'pace-delta ahead';
+      } else if (diff > 5) {
+        paceDelta.textContent = `${diffStr} behind`;
+        paceDelta.className = 'pace-delta behind';
+      } else {
+        paceDelta.textContent = 'on pace';
+        paceDelta.className = 'pace-delta near';
+      }
+
+      statSpeed.textContent = unit === 'km'
+        ? (speedMs * 3.6).toFixed(1)
+        : (speedMs * 2.237).toFixed(1);
     }
 
     function renderStats() {
@@ -508,20 +614,20 @@
       unit = u;
       document.getElementById('btnKm').classList.toggle('active', u === 'km');
       document.getElementById('btnMi').classList.toggle('active', u === 'mi');
-      statSpeed.closest('.stat-card').querySelector('.stat-label').textContent = u === 'km' ? 'km/h' : 'mph';
-      statDistance.closest('.stat-card').querySelector('.stat-label').textContent = u;
+      document.getElementById('statSpeedLabel').textContent = u === 'km' ? 'km/h' : 'mph';
+      document.getElementById('statDistLabel').textContent = u;
+      document.getElementById('targetUnit').textContent = `/ ${u}`;
       renderPace(smoothSpeed);
       renderStats();
     }
 
-    // ── Haversine distance (metres) ───────────────────────────────────────────
+    // ── Haversine (metres) ────────────────────────────────────────────────────
     function haversine(lat1, lon1, lat2, lon2) {
       const R = 6371000;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
       const a = Math.sin(dLat/2)**2 +
-                Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
-                Math.sin(dLon/2)**2;
+                Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
