@@ -421,6 +421,13 @@
     // Target pace in total seconds per unit (default 6:00)
     let targetMin = 6, targetSec = 0;
 
+    // ── DeviceMotion state ────────────────────────────────────────────────────
+    const MOTION_WINDOW = 60;          // ~1 second of samples at ~60Hz
+    const STATIONARY_VARIANCE = 0.8;   // m²/s⁴ — below this = not moving
+    const STATIONARY_GRAVITY  = 1.5;   // m/s²  — mean within this of 9.81 = not moving
+    let motionSamples = [];
+    let motionDecayTimer = null;
+
     // ── DOM ───────────────────────────────────────────────────────────────────
     const overlay      = document.getElementById('overlay');
     const overlayError = document.getElementById('overlayError');
@@ -485,6 +492,7 @@
       totalDistance = 0;
       lastPos = null;
       smoothSpeed = 0;
+      motionSamples = [];
       btnStart.textContent = 'STOP';
       btnStart.classList.add('running');
       if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
@@ -492,6 +500,7 @@
       watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
         enableHighAccuracy: true, timeout: 5000, maximumAge: 1000,
       });
+      startMotionTracking();
     }
 
     function stopTracking() {
@@ -500,7 +509,9 @@
       btnStart.classList.remove('running');
       if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      if (motionDecayTimer) { clearInterval(motionDecayTimer); motionDecayTimer = null; }
       if (wakeLock) { wakeLock.release(); wakeLock = null; }
+      window.removeEventListener('devicemotion', onDeviceMotion);
       setGps('locked', 'GPS Ready');
       paceValue.textContent = '--:--';
       paceValue.className = 'pace-value idle';
@@ -513,7 +524,16 @@
       const { latitude, longitude, speed, accuracy } = pos.coords;
       const now = pos.timestamp;
       setGps('locked', 'GPS');
+
+      // Skip junk fixes: if we already have a recent fix and this one is too noisy, ignore it.
+      // Always accept if it's the first fix or the last one is stale (>8s).
+      const stale = !lastPos || (now - lastPos.timestamp) > 8000;
+      if (!stale && accuracy > 25) {
+        accuracyBar.textContent = `±${Math.round(accuracy)} m — weak signal, skipping`;
+        return;
+      }
       accuracyBar.textContent = accuracy ? `±${Math.round(accuracy)} m accuracy` : '';
+
       if (!running) return;
 
       let rawSpeed = null;
@@ -538,6 +558,47 @@
     function onGeoError(err) {
       setGps('error', 'Error');
       accuracyBar.textContent = geoErrorMsg(err);
+    }
+
+    // ── DeviceMotion: stop detection ──────────────────────────────────────────
+    function startMotionTracking() {
+      // iOS 13+ requires an explicit permission request on a user gesture (START tap)
+      if (typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+          .then(r => { if (r === 'granted') window.addEventListener('devicemotion', onDeviceMotion); })
+          .catch(() => {});
+      } else if (typeof DeviceMotionEvent !== 'undefined') {
+        window.addEventListener('devicemotion', onDeviceMotion);
+      }
+
+      // Every 500ms, check if the rolling window says we've stopped
+      motionDecayTimer = setInterval(checkMotionDecay, 500);
+    }
+
+    function onDeviceMotion(e) {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc || acc.x == null) return;
+      const mag = Math.sqrt(acc.x ** 2 + acc.y ** 2 + acc.z ** 2);
+      motionSamples.push(mag);
+      if (motionSamples.length > MOTION_WINDOW) motionSamples.shift();
+    }
+
+    function checkMotionDecay() {
+      if (!running || motionSamples.length < MOTION_WINDOW) return;
+
+      const mean = motionSamples.reduce((a, b) => a + b, 0) / motionSamples.length;
+      const variance = motionSamples.reduce((a, b) => a + (b - mean) ** 2, 0) / motionSamples.length;
+
+      // Stationary: acceleration magnitude hovers near gravity (9.81) with little variance
+      const isStationary = variance < STATIONARY_VARIANCE && Math.abs(mean - 9.81) < STATIONARY_GRAVITY;
+
+      if (isStationary && smoothSpeed > 0) {
+        smoothSpeed *= 0.7;  // fast decay — stops showing stale pace immediately
+        if (smoothSpeed < 0.3) smoothSpeed = 0;
+        renderPace(smoothSpeed);
+        renderStats();
+      }
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
