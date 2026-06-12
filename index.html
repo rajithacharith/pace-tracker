@@ -412,6 +412,39 @@
       color: var(--text-secondary);
     }
 
+    /* Preset routes panel inside map */
+    .map-presets {
+      position: absolute;
+      top: 64px;
+      left: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .btn-preset {
+      background: rgba(10,10,10,0.85);
+      border: 1px solid rgba(79,195,247,0.4);
+      border-radius: 30px;
+      padding: 7px 16px;
+      color: #4fc3f7;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      pointer-events: all;
+      transition: background 0.2s;
+    }
+    .btn-preset.loaded {
+      background: rgba(79,195,247,0.2);
+      border-color: #4fc3f7;
+    }
+
     /* Bottom bar inside map overlay */
     .map-bottom-bar {
       position: absolute;
@@ -496,6 +529,8 @@
       <span class="map-pace-val idle" id="mapPaceVal">--:--</span>
       <span class="map-pace-unit" id="mapPaceUnit">min / km</span>
     </div>
+    <!-- Preset route chips rendered here by JS -->
+    <div class="map-presets" id="mapPresets"></div>
     <div id="map"></div>
     <div class="map-bottom-bar">
       <button class="btn-map-action gpx" onclick="document.getElementById('gpxInput').click()">Import GPX</button>
@@ -608,6 +643,11 @@
     let gpxLine = null;
     let gpxCoords = [];
     let gpxName = '';
+
+    // Preset routes bundled with the app
+    const PRESET_ROUTES = [
+      { label: 'CNR 5k', file: 'CNR 5k Route.gpx' },
+    ];
 
     // ── DOM ───────────────────────────────────────────────────────────────────
     const overlay      = document.getElementById('overlay');
@@ -727,42 +767,8 @@
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (ev) => {
-        const xml = new DOMParser().parseFromString(ev.target.result, 'application/xml');
-
-        // Try track points first, then route points, then waypoints
-        const pts = xml.querySelectorAll('trkpt') .length ? xml.querySelectorAll('trkpt')
-                  : xml.querySelectorAll('rtept').length ? xml.querySelectorAll('rtept')
-                  : xml.querySelectorAll('wpt');
-
-        if (!pts.length) {
-          alert('No route points found in this GPX file.');
-          return;
-        }
-
-        gpxCoords = Array.from(pts).map(p => [
-          parseFloat(p.getAttribute('lat')),
-          parseFloat(p.getAttribute('lon')),
-        ]);
-
-        gpxName = (xml.querySelector('name')?.textContent || file.name.replace('.gpx', '')).trim();
-
-        // Update banner
-        document.getElementById('gpxBanner').classList.add('visible');
-        document.getElementById('gpxBannerText').textContent = `Route: ${gpxName} (${pts.length} pts)`;
-        document.getElementById('gpxBadge').classList.add('visible');
-
-        // Draw on map if already open
-        if (gpxLine) {
-          gpxLine.setLatLngs(gpxCoords);
-          map.fitBounds(gpxLine.getBounds(), { padding: [40, 40] });
-        }
-
-        // Open the map so user can see the route
-        openMap();
-      };
+      reader.onload = (ev) => applyGpxText(ev.target.result, file.name.replace('.gpx', ''));
       reader.readAsText(file);
-      // Reset input so the same file can be re-imported
       e.target.value = '';
     }
 
@@ -772,7 +778,55 @@
       if (gpxLine) gpxLine.setLatLngs([]);
       document.getElementById('gpxBanner').classList.remove('visible');
       document.getElementById('gpxBadge').classList.remove('visible');
+      renderPresetChips();
     }
+
+    function loadGpxFromUrl(url, name) {
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.text(); })
+        .then(text => applyGpxText(text, name))
+        .catch(err => alert('Could not load route: ' + err.message));
+    }
+
+    function applyGpxText(text, fallbackName) {
+      const xml = new DOMParser().parseFromString(text, 'application/xml');
+      const pts = xml.querySelectorAll('trkpt').length ? xml.querySelectorAll('trkpt')
+                : xml.querySelectorAll('rtept').length ? xml.querySelectorAll('rtept')
+                : xml.querySelectorAll('wpt');
+      if (!pts.length) { alert('No route points found in this GPX file.'); return; }
+
+      gpxCoords = Array.from(pts).map(p => [
+        parseFloat(p.getAttribute('lat')),
+        parseFloat(p.getAttribute('lon')),
+      ]);
+      gpxName = (xml.querySelector('name')?.textContent || fallbackName || 'Route').trim();
+
+      document.getElementById('gpxBanner').classList.add('visible');
+      document.getElementById('gpxBannerText').textContent = `Route: ${gpxName} (${pts.length} pts)`;
+      document.getElementById('gpxBadge').classList.add('visible');
+
+      if (gpxLine) {
+        gpxLine.setLatLngs(gpxCoords);
+        map.fitBounds(gpxLine.getBounds(), { padding: [40, 40] });
+      }
+      renderPresetChips();
+      openMap();
+    }
+
+    function renderPresetChips() {
+      const container = document.getElementById('mapPresets');
+      container.innerHTML = '';
+      PRESET_ROUTES.forEach(route => {
+        const btn = document.createElement('button');
+        btn.className = 'btn-preset' + (gpxName === route.label || gpxName.startsWith(route.label) ? ' loaded' : '');
+        btn.textContent = route.label;
+        btn.onclick = () => loadGpxFromUrl(route.file, route.label);
+        container.appendChild(btn);
+      });
+    }
+
+    // Render preset chips on init
+    renderPresetChips();
 
     // ── Target pace controls ──────────────────────────────────────────────────
     function adjustTarget(part, delta) {
