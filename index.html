@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <title>Pace Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -18,7 +19,6 @@
       --text-secondary: #888;
       --text-dim: #555;
       --warn: #ff9800;
-      --error: #f44336;
       --green: #00e676;
       --yellow: #ffd600;
       --red: #f44336;
@@ -53,6 +53,12 @@
       color: var(--text-dim);
     }
 
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .gps-status {
       display: flex;
       align-items: center;
@@ -62,8 +68,7 @@
     }
 
     .gps-dot {
-      width: 8px;
-      height: 8px;
+      width: 8px; height: 8px;
       border-radius: 50%;
       background: var(--text-dim);
       transition: background 0.3s;
@@ -71,6 +76,21 @@
     .gps-dot.acquiring { background: var(--warn); animation: pulse 1.2s infinite; }
     .gps-dot.locked    { background: var(--green); }
     .gps-dot.error     { background: var(--red); }
+
+    /* Map toggle button */
+    .btn-map {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 16px;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-map.active { color: var(--green); border-color: var(--green); }
 
     @keyframes pulse {
       0%, 100% { opacity: 1; }
@@ -110,18 +130,12 @@
     .pace-value.near   { color: var(--yellow); }
     .pace-value.behind { color: var(--red); }
 
-    .pace-unit {
-      font-size: 17px;
-      font-weight: 400;
-      color: var(--text-secondary);
-    }
+    .pace-unit { font-size: 17px; font-weight: 400; color: var(--text-secondary); }
 
-    /* Delta badge: shows +0:12 behind / -0:08 ahead */
     .pace-delta {
       font-size: 15px;
       font-weight: 600;
       font-variant-numeric: tabular-nums;
-      letter-spacing: 0.02em;
       padding: 4px 14px;
       border-radius: 20px;
       background: transparent;
@@ -156,7 +170,6 @@
     .target-setter {
       display: flex;
       align-items: center;
-      gap: 0;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 16px;
@@ -181,16 +194,13 @@
     }
 
     .adj-btn {
-      width: 44px;
-      height: 56px;
+      width: 44px; height: 56px;
       background: transparent;
       border: none;
       color: var(--text-secondary);
       font-size: 20px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       transition: color 0.15s;
       -webkit-tap-highlight-color: transparent;
     }
@@ -214,16 +224,10 @@
       padding-right: 12px;
     }
 
-    .target-section.locked .adj-btn {
-      opacity: 0.2;
-      pointer-events: none;
-    }
-
+    .target-section.locked .adj-btn { opacity: 0.2; pointer-events: none; }
     .target-section.locked .target-display,
     .target-section.locked .target-sep,
-    .target-section.locked .target-unit {
-      opacity: 0.4;
-    }
+    .target-section.locked .target-unit { opacity: 0.4; }
 
     /* ── Stats row ── */
     .stats-row {
@@ -290,8 +294,7 @@
     .unit-btn.active { background: var(--green); color: #000; }
 
     .btn-start {
-      width: 76px;
-      height: 76px;
+      width: 76px; height: 76px;
       border-radius: 50%;
       border: 3px solid var(--green);
       background: transparent;
@@ -326,7 +329,7 @@
       gap: 20px;
       padding: 40px;
       text-align: center;
-      z-index: 10;
+      z-index: 100;
     }
     .overlay.hidden { display: none; }
     .overlay-icon  { font-size: 56px; }
@@ -344,10 +347,88 @@
       cursor: pointer;
     }
     .btn-primary:active { transform: scale(0.96); }
+
+    /* ── Full-screen map overlay ── */
+    .map-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      background: #111;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .map-overlay.open { transform: translateY(0); }
+
+    #map {
+      flex: 1;
+      width: 100%;
+    }
+
+    /* Pace chip overlaid on map */
+    .map-pace-chip {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(10,10,10,0.85);
+      border: 1px solid var(--border);
+      border-radius: 40px;
+      padding: 8px 20px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+    }
+
+    .map-pace-val {
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      transition: color 0.4s;
+    }
+    .map-pace-val.idle   { color: var(--text-dim); }
+    .map-pace-val.ahead  { color: var(--green); }
+    .map-pace-val.near   { color: var(--yellow); }
+    .map-pace-val.behind { color: var(--red); }
+
+    .map-pace-unit {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .btn-map-close {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(10,10,10,0.85);
+      border: 1px solid var(--border);
+      border-radius: 40px;
+      padding: 10px 28px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Leaflet dark tile tweak */
+    .leaflet-tile { filter: brightness(0.85) saturate(0.8); }
+    .leaflet-container { background: #1a1a1a; }
   </style>
 </head>
 <body>
 
+  <!-- Permission overlay -->
   <div class="overlay" id="overlay">
     <div class="overlay-icon">📍</div>
     <div class="overlay-title">Location Access Needed</div>
@@ -356,15 +437,27 @@
     <div class="overlay-body" id="overlayError" style="color:var(--red);display:none;"></div>
   </div>
 
+  <!-- Full-screen map overlay -->
+  <div class="map-overlay" id="mapOverlay">
+    <div class="map-pace-chip">
+      <span class="map-pace-val idle" id="mapPaceVal">--:--</span>
+      <span class="map-pace-unit" id="mapPaceUnit">min / km</span>
+    </div>
+    <div id="map"></div>
+    <button class="btn-map-close" onclick="closeMap()">Close Map</button>
+  </div>
+
   <header>
     <span class="app-title">Pace Tracker</span>
-    <div class="gps-status">
-      <div class="gps-dot" id="gpsDot"></div>
-      <span id="gpsLabel">—</span>
+    <div class="header-right">
+      <button class="btn-map" id="btnMap" onclick="openMap()" title="Show map">🗺</button>
+      <div class="gps-status">
+        <div class="gps-dot" id="gpsDot"></div>
+        <span id="gpsLabel">—</span>
+      </div>
     </div>
   </header>
 
-  <!-- Current pace -->
   <div class="main-display">
     <div class="pace-label">Current Pace</div>
     <div class="pace-value idle" id="paceValue">--:--</div>
@@ -372,18 +465,15 @@
     <div class="pace-delta" id="paceDelta"></div>
   </div>
 
-  <!-- Target pace setter -->
   <div class="target-section">
     <div class="target-label">Target Pace</div>
     <div class="target-setter">
-      <!-- Minutes -->
       <div class="target-group">
         <button class="adj-btn" onclick="adjustTarget('min', 1)">＋</button>
         <div class="target-display" id="targetMin">6</div>
         <button class="adj-btn" onclick="adjustTarget('min', -1)">－</button>
       </div>
       <div class="target-sep">:</div>
-      <!-- Seconds -->
       <div class="target-group">
         <button class="adj-btn" onclick="adjustTarget('sec', 5)">＋</button>
         <div class="target-display" id="targetSec">00</div>
@@ -393,7 +483,6 @@
     </div>
   </div>
 
-  <!-- Stats -->
   <div class="stats-row">
     <div class="stat-card">
       <div class="stat-value" id="statSpeed">0.0</div>
@@ -409,7 +498,6 @@
     </div>
   </div>
 
-  <!-- Controls -->
   <div class="controls">
     <div class="unit-toggle">
       <button class="unit-btn active" id="btnKm" onclick="setUnit('km')">KM</button>
@@ -419,6 +507,7 @@
     <div class="accuracy-bar" id="accuracyBar"></div>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     // ── State ────────────────────────────────────────────────────────────────
     let watchId = null, wakeLock = null;
@@ -429,16 +518,21 @@
     let lastPos = null;
     const SMOOTHING = 0.25;
     let smoothSpeed = 0;
-
-    // Target pace in total seconds per unit (default 6:00)
     let targetMin = 6, targetSec = 0;
 
-    // ── DeviceMotion state ────────────────────────────────────────────────────
-    const MOTION_WINDOW = 60;          // ~1 second of samples at ~60Hz
-    const STATIONARY_VARIANCE = 0.8;   // m²/s⁴ — below this = not moving
-    const STATIONARY_GRAVITY  = 1.5;   // m/s²  — mean within this of 9.81 = not moving
+    // DeviceMotion
+    const MOTION_WINDOW = 60;
+    const STATIONARY_VARIANCE = 0.8;
+    const STATIONARY_GRAVITY  = 1.5;
     let motionSamples = [];
     let motionDecayTimer = null;
+
+    // Map
+    let map = null;
+    let posMarker = null;
+    let routeLine = null;
+    let routeCoords = [];
+    let mapInitialized = false;
 
     // ── DOM ───────────────────────────────────────────────────────────────────
     const overlay      = document.getElementById('overlay');
@@ -448,10 +542,13 @@
     const paceValue    = document.getElementById('paceValue');
     const paceUnit     = document.getElementById('paceUnit');
     const paceDelta    = document.getElementById('paceDelta');
+    const mapPaceVal   = document.getElementById('mapPaceVal');
+    const mapPaceUnit  = document.getElementById('mapPaceUnit');
     const statSpeed    = document.getElementById('statSpeed');
     const statDistance = document.getElementById('statDistance');
     const statTime     = document.getElementById('statTime');
     const btnStart     = document.getElementById('btnStart');
+    const btnMap       = document.getElementById('btnMap');
     const accuracyBar  = document.getElementById('accuracyBar');
     const targetMinEl  = document.getElementById('targetMin');
     const targetSecEl  = document.getElementById('targetSec');
@@ -469,10 +566,71 @@
       overlayError.style.display = 'none';
       setGps('acquiring', 'Acquiring…');
       navigator.geolocation.getCurrentPosition(
-        () => { overlay.classList.add('hidden'); setGps('locked', 'GPS Ready'); },
+        (pos) => {
+          overlay.classList.add('hidden');
+          setGps('locked', 'GPS Ready');
+          initMap(pos.coords.latitude, pos.coords.longitude);
+        },
         (err) => { setGps('error', 'Error'); overlayError.textContent = geoErrorMsg(err); overlayError.style.display = 'block'; },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
+    }
+
+    // ── Map ───────────────────────────────────────────────────────────────────
+    function initMap(lat, lng) {
+      if (mapInitialized) return;
+      mapInitialized = true;
+
+      map = L.map('map', { zoomControl: false, attributionControl: false })
+              .setView([lat, lng], 16);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
+
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      // Current position marker — glowing green dot
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:16px;height:16px;
+          background:var(--green);
+          border:3px solid #fff;
+          border-radius:50%;
+          box-shadow:0 0 0 4px rgba(0,230,118,0.3);
+        "></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+      posMarker = L.marker([lat, lng], { icon }).addTo(map);
+
+      routeLine = L.polyline([], {
+        color: '#00e676',
+        weight: 4,
+        opacity: 0.85,
+      }).addTo(map);
+    }
+
+    function updateMap(lat, lng) {
+      if (!map) return;
+      posMarker.setLatLng([lat, lng]);
+      routeCoords.push([lat, lng]);
+      routeLine.setLatLngs(routeCoords);
+      // Keep map centered on current position
+      map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
+
+    function openMap() {
+      document.getElementById('mapOverlay').classList.add('open');
+      btnMap.classList.add('active');
+      // Leaflet needs a size recalc after display
+      if (map) setTimeout(() => map.invalidateSize(), 50);
+    }
+
+    function closeMap() {
+      document.getElementById('mapOverlay').classList.remove('open');
+      btnMap.classList.remove('active');
     }
 
     // ── Target pace controls ──────────────────────────────────────────────────
@@ -481,7 +639,6 @@
         targetMin = Math.max(1, Math.min(30, targetMin + delta));
       } else {
         targetSec = (targetSec + delta + 60) % 60;
-        // round to nearest 5
         targetSec = Math.round(targetSec / 5) * 5 % 60;
       }
       targetMinEl.textContent = targetMin;
@@ -489,9 +646,7 @@
       renderPace(smoothSpeed);
     }
 
-    function targetSeconds() {
-      return targetMin * 60 + targetSec;
-    }
+    function targetSeconds() { return targetMin * 60 + targetSec; }
 
     // ── Tracking ─────────────────────────────────────────────────────────────
     function toggleTracking() {
@@ -505,6 +660,8 @@
       lastPos = null;
       smoothSpeed = 0;
       motionSamples = [];
+      routeCoords = [];
+      if (routeLine) routeLine.setLatLngs([]);
       btnStart.textContent = 'STOP';
       btnStart.classList.add('running');
       document.querySelector('.target-section').classList.add('locked');
@@ -531,6 +688,8 @@
       paceValue.className = 'pace-value idle';
       paceDelta.textContent = '';
       paceDelta.className = 'pace-delta';
+      mapPaceVal.textContent = '--:--';
+      mapPaceVal.className = 'map-pace-val idle';
       statSpeed.textContent = '0.0';
       statDistance.textContent = '0.00';
       statTime.textContent = '0:00';
@@ -544,14 +703,15 @@
       const now = pos.timestamp;
       setGps('locked', 'GPS');
 
-      // Skip junk fixes: if we already have a recent fix and this one is too noisy, ignore it.
-      // Always accept if it's the first fix or the last one is stale (>8s).
       const stale = !lastPos || (now - lastPos.timestamp) > 8000;
       if (!stale && accuracy > 25) {
         accuracyBar.textContent = `±${Math.round(accuracy)} m — weak signal, skipping`;
         return;
       }
       accuracyBar.textContent = accuracy ? `±${Math.round(accuracy)} m accuracy` : '';
+
+      // Always update map position
+      updateMap(latitude, longitude);
 
       if (!running) return;
 
@@ -581,7 +741,6 @@
 
     // ── DeviceMotion: stop detection ──────────────────────────────────────────
     function startMotionTracking() {
-      // iOS 13+ requires an explicit permission request on a user gesture (START tap)
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission()
@@ -590,8 +749,6 @@
       } else if (typeof DeviceMotionEvent !== 'undefined') {
         window.addEventListener('devicemotion', onDeviceMotion);
       }
-
-      // Every 500ms, check if the rolling window says we've stopped
       motionDecayTimer = setInterval(checkMotionDecay, 500);
     }
 
@@ -605,15 +762,11 @@
 
     function checkMotionDecay() {
       if (!running || motionSamples.length < MOTION_WINDOW) return;
-
       const mean = motionSamples.reduce((a, b) => a + b, 0) / motionSamples.length;
       const variance = motionSamples.reduce((a, b) => a + (b - mean) ** 2, 0) / motionSamples.length;
-
-      // Stationary: acceleration magnitude hovers near gravity (9.81) with little variance
       const isStationary = variance < STATIONARY_VARIANCE && Math.abs(mean - 9.81) < STATIONARY_GRAVITY;
-
       if (isStationary && smoothSpeed > 0) {
-        smoothSpeed *= 0.7;  // fast decay — stops showing stale pace immediately
+        smoothSpeed *= 0.7;
         if (smoothSpeed < 0.3) smoothSpeed = 0;
         renderPace(smoothSpeed);
         renderStats();
@@ -624,10 +777,13 @@
     function renderPace(speedMs) {
       const distPerUnit = unit === 'km' ? 1000 : 1609.34;
       paceUnit.textContent = `min / ${unit}`;
+      mapPaceUnit.textContent = `min / ${unit}`;
 
       if (speedMs < 0.2) {
         paceValue.textContent = '--:--';
         paceValue.className = 'pace-value idle';
+        mapPaceVal.textContent = '--:--';
+        mapPaceVal.className = 'map-pace-val idle';
         statSpeed.textContent = '0.0';
         paceDelta.textContent = '';
         paceDelta.className = 'pace-delta';
@@ -637,25 +793,21 @@
       const secPerUnit = distPerUnit / speedMs;
       const mins = Math.floor(secPerUnit / 60);
       const secs = Math.floor(secPerUnit % 60);
-      paceValue.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+      const paceStr = `${mins}:${String(secs).padStart(2, '0')}`;
+      paceValue.textContent = paceStr;
+      mapPaceVal.textContent = paceStr;
 
       const target = targetSeconds();
-      const diff = secPerUnit - target; // positive = slower (behind), negative = faster (ahead)
-
-      let zone;
-      if (diff < -30)      zone = 'ahead';   // >30s faster than target
-      else if (diff <= 30) zone = 'near';    // within ±30s
-      else                 zone = 'behind';  // >30s slower
+      const diff = secPerUnit - target;
+      let zone = diff < -30 ? 'ahead' : diff <= 30 ? 'near' : 'behind';
 
       paceValue.className = `pace-value ${zone}`;
+      mapPaceVal.className = `map-pace-val ${zone}`;
 
-      // Delta badge
       const absDiff = Math.abs(Math.round(diff));
       const dMin = Math.floor(absDiff / 60);
       const dSec = absDiff % 60;
-      const diffStr = dMin > 0
-        ? `${dMin}:${String(dSec).padStart(2,'0')}`
-        : `0:${String(dSec).padStart(2,'0')}`;
+      const diffStr = dMin > 0 ? `${dMin}:${String(dSec).padStart(2,'0')}` : `0:${String(dSec).padStart(2,'0')}`;
 
       if (diff < -5) {
         paceDelta.textContent = `${diffStr} ahead`;
@@ -668,9 +820,7 @@
         paceDelta.className = 'pace-delta near';
       }
 
-      statSpeed.textContent = unit === 'km'
-        ? (speedMs * 3.6).toFixed(1)
-        : (speedMs * 2.237).toFixed(1);
+      statSpeed.textContent = unit === 'km' ? (speedMs * 3.6).toFixed(1) : (speedMs * 2.237).toFixed(1);
     }
 
     function renderStats() {
