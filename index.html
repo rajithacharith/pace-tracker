@@ -142,6 +142,7 @@
       flex-direction: column;
       align-items: center;
       gap: 8px;
+      margin-bottom: 8px;
     }
 
     .target-label {
@@ -211,6 +212,17 @@
       letter-spacing: 0.1em;
       text-transform: uppercase;
       padding-right: 12px;
+    }
+
+    .target-section.locked .adj-btn {
+      opacity: 0.2;
+      pointer-events: none;
+    }
+
+    .target-section.locked .target-display,
+    .target-section.locked .target-sep,
+    .target-section.locked .target-unit {
+      opacity: 0.4;
     }
 
     /* ── Stats row ── */
@@ -495,6 +507,7 @@
       motionSamples = [];
       btnStart.textContent = 'STOP';
       btnStart.classList.add('running');
+      document.querySelector('.target-section').classList.add('locked');
       if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
       timerInterval = setInterval(updateTimer, 1000);
       watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
@@ -512,6 +525,7 @@
       if (motionDecayTimer) { clearInterval(motionDecayTimer); motionDecayTimer = null; }
       if (wakeLock) { wakeLock.release(); wakeLock = null; }
       window.removeEventListener('devicemotion', onDeviceMotion);
+      document.querySelector('.target-section').classList.remove('locked');
       setGps('locked', 'GPS Ready');
       paceValue.textContent = '--:--';
       paceValue.className = 'pace-value idle';
