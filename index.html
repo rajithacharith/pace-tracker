@@ -537,6 +537,7 @@
       <span class="brand-name">PACE</span>
     </div>
     <div class="topbar-right">
+      <button class="btn-icon" id="btnVoice" onclick="toggleVoice()" title="Voice cues">🔇</button>
       <button class="btn-icon" id="btnGpx" onclick="document.getElementById('gpxInput').click()" title="Import GPX">
         📂<span class="badge" id="gpxBadge"></span>
       </button>
@@ -638,6 +639,16 @@
     const STATIONARY_GRAVITY  = 1.5;
     let motionSamples = [];
     let motionDecayTimer = null;
+
+    // Voice cues
+    let voiceOn = false;
+    let lastCueZone = null;     // last pace zone we announced
+    let lastCueAt = 0;          // timestamp of last pace cue
+    const CUE_GAP_MS = 12000;   // min gap between pace cues on zone change
+    const CUE_REMIND_MS = 30000;// re-remind interval while off pace
+    let spokenWarnIdx = -1;     // turn idx we've voiced the approach for
+    let spokenNowIdx  = -1;     // turn idx we've voiced "now" for
+    try { voiceOn = localStorage.getItem('voiceOn') === '1'; } catch (e) {}
 
     // Map
     let map = null;
@@ -855,6 +866,10 @@
     // Render preset chips on init
     renderPresetChips();
 
+    // Reflect saved voice preference on the toggle button
+    document.getElementById('btnVoice').textContent = voiceOn ? '🔊' : '🔇';
+    document.getElementById('btnVoice').classList.toggle('active', voiceOn);
+
     // ── Turn detection ────────────────────────────────────────────────────────
     function computeBearing(lat1, lon1, lat2, lon2) {
       const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -984,6 +999,17 @@
       const imminent = dist <= TURN_NOW_M;
       const distText = imminent ? 'Turn now!' : `in ${Math.round(dist)} m`;
       showTurnCard(next.arrow, next.label, distText, imminent);
+
+      // Voice: announce the approach once, then "now" once, per turn
+      if (next.label !== 'Continue straight') {
+        if (imminent && spokenNowIdx !== next.idx) {
+          spokenNowIdx = next.idx;
+          speak(`${next.label} now`);
+        } else if (!imminent && spokenWarnIdx !== next.idx) {
+          spokenWarnIdx = next.idx;
+          speak(`${next.label} in ${Math.round(dist)} meters`);
+        }
+      }
     }
 
     function showTurnCard(arrow, label, distText, imminent) {
@@ -1027,7 +1053,12 @@
       motionSamples = [];
       routeCoords = [];
       routeProgress = 0;
+      lastCueZone = null;
+      lastCueAt = 0;
+      spokenWarnIdx = -1;
+      spokenNowIdx = -1;
       if (routeLine) routeLine.setLatLngs([]);
+      if (voiceOn) speak('Run started');
       btnStart.textContent = 'Stop';
       btnStart.classList.add('running');
       document.body.classList.add('running');
@@ -1042,6 +1073,7 @@
 
     function stopTracking() {
       running = false;
+      if (voiceOn) speak('Run stopped');
       btnStart.textContent = 'Start Run';
       btnStart.classList.remove('running');
       document.body.classList.remove('running');
@@ -1181,6 +1213,7 @@
       paceValue.className = `pace-value ${zone}`;
       mapPaceVal.className = `map-pace-val ${zone}`;
       if (running) setZone(zone); else setZone(null);
+      maybeSpeakPace(zone);
 
       const absDiff = Math.abs(Math.round(diff));
       const dMin = Math.floor(absDiff / 60);
@@ -1237,6 +1270,52 @@
       const a = Math.sin(dLat/2)**2 +
                 Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // ── Voice cues ────────────────────────────────────────────────────────────
+    function speak(text, interrupt = true) {
+      if (!voiceOn || !('speechSynthesis' in window)) return;
+      if (interrupt) speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      u.pitch = 1;
+      u.volume = 1;
+      speechSynthesis.speak(u);
+    }
+
+    function toggleVoice() {
+      voiceOn = !voiceOn;
+      document.getElementById('btnVoice').textContent = voiceOn ? '🔊' : '🔇';
+      document.getElementById('btnVoice').classList.toggle('active', voiceOn);
+      try { localStorage.setItem('voiceOn', voiceOn ? '1' : '0'); } catch (e) {}
+      if (voiceOn) {
+        // Speaking inside this tap unlocks audio on iOS/Safari
+        speak('Voice cues on');
+      } else if ('speechSynthesis' in window) {
+        speechSynthesis.cancel();
+      }
+    }
+
+    // Announce pace zone changes (and periodic reminders while off pace)
+    function maybeSpeakPace(zone) {
+      if (!voiceOn || !running) return;
+      const now = Date.now();
+      const changed = zone !== lastCueZone;
+      const offPace = zone === 'ahead' || zone === 'behind';
+
+      // Speak on a zone change (throttled), or re-remind if still off pace
+      let shouldSpeak = false;
+      if (changed && now - lastCueAt >= CUE_GAP_MS) shouldSpeak = true;
+      else if (!changed && offPace && now - lastCueAt >= CUE_REMIND_MS) shouldSpeak = true;
+
+      lastCueZone = zone;
+      if (!shouldSpeak) return;
+      lastCueAt = now;
+
+      const phrase = zone === 'behind' ? 'Speed up, behind target'
+                   : zone === 'ahead'  ? 'Ease back, ahead of target'
+                   : 'On pace';
+      speak(phrase);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
