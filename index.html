@@ -629,8 +629,10 @@
     let startTime = null, timerInterval = null;
     let totalDistance = 0;
     let lastPos = null;
-    const SMOOTHING = 0.25;
+    const SMOOTHING = 0.35;        // gentle EMA applied on top of the window
+    const PACE_WINDOW_MS = 15000;  // trailing window for averaging pace (15s)
     let smoothSpeed = 0;
+    let paceSamples = [];          // [{ t, dist }] recent cumulative-distance samples
     let targetMin = 6, targetSec = 0;
 
     // DeviceMotion
@@ -1050,6 +1052,7 @@
       totalDistance = 0;
       lastPos = null;
       smoothSpeed = 0;
+      paceSamples = [];
       motionSamples = [];
       routeCoords = [];
       routeProgress = 0;
@@ -1117,20 +1120,26 @@
 
       if (!running) return;
 
-      let rawSpeed = null;
       if (lastPos) {
         const d = haversine(lastPos.lat, lastPos.lng, latitude, longitude);
         totalDistance += d;
-        if (speed != null && speed >= 0) {
-          rawSpeed = speed;
-        } else {
-          const dt = (now - lastPos.timestamp) / 1000;
-          rawSpeed = dt > 0 ? d / dt : null;
-        }
       }
       lastPos = { lat: latitude, lng: longitude, timestamp: now };
-      if (rawSpeed !== null) {
-        smoothSpeed = smoothSpeed === 0 ? rawSpeed : smoothSpeed + SMOOTHING * (rawSpeed - smoothSpeed);
+
+      // Trailing-window pace: average speed over the last PACE_WINDOW_MS of
+      // movement rather than the single last fix. Random GPS error cancels out
+      // across the window, so the displayed pace is far steadier.
+      paceSamples.push({ t: now, dist: totalDistance });
+      const cutoff = now - PACE_WINDOW_MS;
+      // Keep one sample at/just before the cutoff as the window's start anchor
+      while (paceSamples.length > 2 && paceSamples[1].t < cutoff) paceSamples.shift();
+
+      const oldest = paceSamples[0];
+      const span = (now - oldest.t) / 1000; // seconds spanned by the window
+      if (span >= 1) {
+        const winSpeed = (totalDistance - oldest.dist) / span;
+        // Gentle EMA on top of the window removes the last bit of step-jitter
+        smoothSpeed = smoothSpeed === 0 ? winSpeed : smoothSpeed + SMOOTHING * (winSpeed - smoothSpeed);
       }
       renderPace(smoothSpeed);
       renderStats();
