@@ -500,6 +500,70 @@
     /* Leaflet dark tile tweak */
     .leaflet-tile { filter: brightness(0.82) saturate(0.82) hue-rotate(5deg); }
     .leaflet-container { background: #16161c; }
+
+    /* ── Run summary overlay ── */
+    .summary-overlay {
+      position: fixed; inset: 0;
+      z-index: 60;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      padding:
+        max(20px, env(safe-area-inset-top))
+        20px
+        max(24px, env(safe-area-inset-bottom));
+      gap: 18px;
+      transform: translateY(100%);
+      transition: transform .38s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .summary-overlay.open { transform: translateY(0); }
+
+    .summary-head { display: flex; align-items: center; justify-content: space-between; }
+    .summary-title { font-size: 20px; font-weight: 800; letter-spacing: 0.02em; }
+    .summary-close {
+      background: var(--green); color: var(--green-ink);
+      border: none; border-radius: 40px;
+      padding: 10px 24px; font-size: 14px; font-weight: 800;
+      letter-spacing: 0.05em; cursor: pointer;
+    }
+    .summary-close:active { transform: scale(0.95); }
+
+    .summary-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .sum-card {
+      background: var(--surface);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 16px;
+      text-align: center;
+    }
+    .sum-val {
+      font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
+      color: var(--text-primary); line-height: 1;
+    }
+    .sum-lbl {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--text-dim); margin-top: 7px;
+    }
+
+    .summary-chart {
+      flex: 1;
+      min-height: 0;
+      background: var(--surface);
+      border: 1px solid var(--border-soft);
+      border-radius: 18px;
+      padding: 12px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .summary-chart svg { width: 100%; height: 100%; display: block; }
+    .summary-chart .empty { color: var(--text-dim); font-size: 14px; }
+
+    .summary-foot {
+      text-align: center; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim);
+    }
   </style>
 </head>
 <body>
@@ -525,6 +589,22 @@
       <button class="btn-map-action gpx" onclick="document.getElementById('gpxInput').click()">Import GPX</button>
       <button class="btn-map-action" onclick="closeMap()">Close Map</button>
     </div>
+  </div>
+
+  <!-- Run summary overlay (shown after Stop) -->
+  <div class="summary-overlay" id="summaryOverlay">
+    <div class="summary-head">
+      <span class="summary-title">Run Summary</span>
+      <button class="summary-close" onclick="closeSummary()">Done</button>
+    </div>
+    <div class="summary-stats">
+      <div class="sum-card"><div class="sum-val" id="sumDist">0.00</div><div class="sum-lbl" id="sumDistLbl">km</div></div>
+      <div class="sum-card"><div class="sum-val" id="sumTime">0:00</div><div class="sum-lbl">time</div></div>
+      <div class="sum-card"><div class="sum-val" id="sumAvg">--:--</div><div class="sum-lbl">avg pace</div></div>
+      <div class="sum-card"><div class="sum-val" id="sumBest">--:--</div><div class="sum-lbl">best pace</div></div>
+    </div>
+    <div class="summary-chart" id="summaryChart"></div>
+    <div class="summary-foot" id="summaryFoot">Pace over distance</div>
   </div>
 
   <!-- Hidden GPX file input -->
@@ -634,6 +714,12 @@
     let smoothSpeed = 0;
     let paceSamples = [];          // [{ t, dist }] recent cumulative-distance samples
     let targetMin = 6, targetSec = 0;
+
+    // Pace history for the post-run graph
+    let paceHistory = [];          // [{ t (s), distM, speed (m/s) }]
+    let lastHistAt = 0;
+    const HIST_INTERVAL_MS = 3000; // sample the graph every ~3s
+    const HIST_MIN_SPEED = 0.5;    // ignore near-stopped samples (avoids pace spikes)
 
     // DeviceMotion
     const MOTION_WINDOW = 60;
@@ -1053,6 +1139,8 @@
       lastPos = null;
       smoothSpeed = 0;
       paceSamples = [];
+      paceHistory = [];
+      lastHistAt = 0;
       motionSamples = [];
       routeCoords = [];
       routeProgress = 0;
@@ -1077,6 +1165,14 @@
     function stopTracking() {
       running = false;
       if (voiceOn) speak('Run stopped');
+
+      // Capture the run for the summary graph before we reset everything
+      const summary = {
+        samples: paceHistory.slice(),
+        distM: totalDistance,
+        timeSec: startTime ? (Date.now() - startTime) / 1000 : 0,
+      };
+
       btnStart.textContent = 'Start Run';
       btnStart.classList.remove('running');
       document.body.classList.remove('running');
@@ -1100,6 +1196,9 @@
       statTime.textContent = '0:00';
       totalDistance = 0;
       startTime = null;
+
+      // Show the run summary + pace graph if we gathered enough data
+      if (summary.distM > 50 && summary.samples.length >= 2) showSummary(summary);
     }
 
     // ── Position handler ──────────────────────────────────────────────────────
@@ -1144,6 +1243,12 @@
       renderPace(smoothSpeed);
       renderStats();
       updateTurnGuide(latitude, longitude);
+
+      // Record a point for the post-run pace graph (throttled, moving only)
+      if (smoothSpeed >= HIST_MIN_SPEED && now - lastHistAt >= HIST_INTERVAL_MS) {
+        lastHistAt = now;
+        paceHistory.push({ t: (now - startTime) / 1000, distM: totalDistance, speed: smoothSpeed });
+      }
     }
 
     function onGeoError(err) {
@@ -1257,6 +1362,101 @@
       statTime.textContent = h > 0
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
         : `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    // ── Run summary + pace graph ──────────────────────────────────────────────
+    function fmtClock(totalSec) {
+      const t = Math.round(totalSec);
+      const h = Math.floor(t / 3600);
+      const m = Math.floor((t % 3600) / 60);
+      const s = t % 60;
+      return h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    function fmtPace(sec) {
+      if (!isFinite(sec) || sec <= 0) return '--:--';
+      let m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      if (s === 60) { m += 1; s = 0; }
+      return `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    function showSummary(summary) {
+      const distPerUnit = unit === 'km' ? 1000 : 1609.34;
+
+      // Per-sample pace (seconds per unit) from recorded speed
+      const pts = summary.samples.map(s => ({
+        d: s.distM / distPerUnit,                 // distance in current unit
+        pace: distPerUnit / s.speed,              // sec per unit
+      }));
+
+      const distUnit = summary.distM / distPerUnit;
+      const avgPace  = distUnit > 0 ? summary.timeSec / distUnit : 0;
+      const bestPace = pts.reduce((min, p) => Math.min(min, p.pace), Infinity);
+
+      document.getElementById('sumDist').textContent = distUnit.toFixed(2);
+      document.getElementById('sumDistLbl').textContent = unit;
+      document.getElementById('sumTime').textContent = fmtClock(summary.timeSec);
+      document.getElementById('sumAvg').textContent  = fmtPace(avgPace);
+      document.getElementById('sumBest').textContent = fmtPace(bestPace);
+      document.getElementById('summaryFoot').textContent = `Pace over distance · min/${unit}`;
+
+      document.getElementById('summaryChart').innerHTML = buildPaceChart(pts);
+      document.getElementById('summaryOverlay').classList.add('open');
+    }
+
+    function closeSummary() {
+      document.getElementById('summaryOverlay').classList.remove('open');
+    }
+
+    // Build a minimal SVG line/area chart of pace vs distance.
+    // Y is inverted so faster pace (smaller seconds) sits higher.
+    function buildPaceChart(pts) {
+      if (pts.length < 2) return '<div class="empty">Not enough data for a graph</div>';
+
+      const W = 340, H = 200;
+      const padL = 46, padR = 14, padT = 14, padB = 26;
+      const plotW = W - padL - padR;
+      const plotH = H - padT - padB;
+
+      const maxD = Math.max(...pts.map(p => p.d));
+      let minP = Math.min(...pts.map(p => p.pace));
+      let maxP = Math.max(...pts.map(p => p.pace));
+      if (maxP - minP < 20) { maxP += 10; minP = Math.max(0, minP - 10); } // avoid flat scale
+      const padP = (maxP - minP) * 0.1;
+      minP -= padP; maxP += padP;
+
+      const x = d => padL + (maxD ? (d / maxD) * plotW : 0);
+      const y = p => padT + (1 - (p - minP) / (maxP - minP)) * plotH; // invert
+
+      const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.d).toFixed(1)},${y(p.pace).toFixed(1)}`).join(' ');
+      const area = `${line} L${x(pts[pts.length-1].d).toFixed(1)},${padT+plotH} L${x(pts[0].d).toFixed(1)},${padT+plotH} Z`;
+
+      // Y gridlines: fastest (top) and slowest (bottom) pace labels
+      const yTicks = [minP + padP, maxP - padP]; // back off the padding for nicer labels
+      const grid = yTicks.map(p => {
+        const yy = y(p).toFixed(1);
+        return `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="#26262f" stroke-width="1"/>`
+             + `<text x="${padL-8}" y="${(+yy+4).toFixed(1)}" fill="#9a9aa6" font-size="11" text-anchor="end">${fmtPace(p)}</text>`;
+      }).join('');
+
+      // X labels: start and end distance
+      const xLabels = `<text x="${padL}" y="${H-6}" fill="#9a9aa6" font-size="11" text-anchor="start">0</text>`
+                    + `<text x="${W-padR}" y="${H-6}" fill="#9a9aa6" font-size="11" text-anchor="end">${maxD.toFixed(2)} ${unit}</text>`;
+
+      return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="paceFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#00e676" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#00e676" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        <path d="${area}" fill="url(#paceFill)"/>
+        <path d="${line}" fill="none" stroke="#00e676" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        ${xLabels}
+      </svg>`;
     }
 
     // ── Unit toggle ───────────────────────────────────────────────────────────
